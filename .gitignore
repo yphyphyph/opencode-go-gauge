@@ -1,0 +1,25 @@
+# 数据与运行产物
+data/
+dist/
+build/
+*.spec
+__pycache__/
+*.pyc
+
+# 开发/测试
+tests/evidence/
+.pytest_cache/
+.venv/
+venv/
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+
+# 日志
+*.log
+
+# 系统
+Thumbs.db
+.DS_Store

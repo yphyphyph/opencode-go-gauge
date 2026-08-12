@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <circle cx="24" cy="24" r="16" fill="none" stroke="#1890FF" stroke-width="6" stroke-dasharray="75 100" transform="rotate(-90 24 24)"/>
+  <circle cx="24" cy="24" r="9" fill="none" stroke="#06B6D4" stroke-width="5" stroke-dasharray="42 57" transform="rotate(30 24 24)"/>
+  <text x="24" y="27.8" text-anchor="middle" font-family="Fira Sans, Segoe UI, Arial, sans-serif" font-size="11" font-weight="700" fill="#1890FF">H</text>
+</svg>

@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GoGauge</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 顶栏 (标题栏 + 操作区) -->
+<header class="tb">
+  <div class="tb-left">
+    <img src="logo-final.svg" class="tb-logo" alt="GoGauge">
+    <span class="tb-title">GoGauge</span>
+    <span class="tb-sub" id="tb-sync">—</span>
+  </div>
+  <div class="tb-right">
+    <span class="sync-indicator" id="sync-indicator" hidden><span class="spinner sm"></span><span data-i18n="syncing">同步中</span></span>
+    <button class="pill small" id="tb-theme" title="切换主题">◐ <span data-i18n="themeDark">暗色</span></button>
+    <button class="pill small refresh" id="tb-refresh" title="刷新">⟳ <span data-i18n="refresh">刷新</span></button>
+    <span class="chip num" id="tb-updated">—</span>
+    <span class="chip" id="tb-login">—</span>
+    <span class="tb-sep"></span>
+    <button class="tb-btn" id="tb-min" title="Minimize"><svg viewBox="0 0 12 12"><path d="M2 6h8"/></svg></button>
+    <button class="tb-btn tb-close" id="tb-close" title="Close"><svg viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6"/></svg></button>
+  </div>
+</header>
+
+<div class="app">
+  <!-- 侧边栏 -->
+  <nav class="side">
+    <button class="side-item active" data-page="home" title="Home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>
+    </button>
+    <button class="side-item" data-page="stats" title="Stats">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5.5 20 L5.5 12.5"/><path d="M12 20 L12 5.5"/><path d="M18.5 20 L18.5 15"/><path d="M3 20 L21 20"/></svg>
+    </button>
+    <div class="spacer"></div>
+    <button class="side-item" data-page="settings" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7 L20 7"/><circle cx="9.5" cy="7" r="2.4" fill="currentColor" stroke="none"/><path d="M4 12 L20 12"/><circle cx="15" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M4 17 L20 17"/><circle cx="7" cy="17" r="2.4" fill="currentColor" stroke="none"/></svg>
+    </button>
+    <button class="side-item" data-page="about" title="About">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.6"/><path d="M12 10.8 L12 16.6"/><circle cx="12" cy="7.6" r="0.7" fill="currentColor" stroke="none"/></svg>
+    </button>
+  </nav>
+
+  <main class="main">
+
+    <!-- 全局加载指示 (顶部进度条) -->
+    <div class="top-loading" id="top-loading" hidden></div>
+
+    <!-- ============ 首页 ============ -->
+    <section class="page" id="page-home">
+      <div class="ph"><h2 class="ph-title" data-i18n="homeTitle">用量统计总览</h2><div class="ph-right"><div class="pill-row" id="home-pills"><button class="pill active" data-r="today" data-i18n="today">今天</button><button class="pill" data-r="7d" data-i18n="d7">近7天</button><button class="pill" data-r="30d" data-i18n="d30">近30天</button><button class="pill" data-r="all" data-i18n="all">全部</button></div></div></div>
+      <div class="usage-blocks" id="usage-blocks"></div>
+      <div class="card overview">
+        <div class="card-h"><h3 data-i18n="overviewTitle">用量概览</h3><span class="hint" data-i18n="followRange">数据跟随时间范围</span></div>
+        <div class="ov-grid" id="overview-grid"></div>
+      </div>
+      <div class="card today-trend">
+        <div class="card-h"><h3><span data-i18n="todayTrend">今日趋势</span> <span class="hint" data-i18n="hours24">24 小时</span></h3></div>
+        <div class="chart-box" style="height:250px"><canvas id="today-chart"></canvas></div>
+      </div>
+    </section>
+
+    <!-- ============ 用量统计 ============ -->
+    <section class="page" id="page-stats" hidden>
+      <div class="ph"><h2 class="ph-title" data-i18n="statsTitle">用量统计</h2><div class="ph-right"><div class="pill-row" id="stats-pills"><button class="pill" data-r="today" data-i18n="today">今天</button><button class="pill active" data-r="7d" data-i18n="d7">近7天</button><button class="pill" data-r="30d" data-i18n="d30">近30天</button><button class="pill" data-r="all" data-i18n="all">全部</button></div></div></div>
+      <div class="kpi-row kpi4" id="stats-total-cards"></div>
+      <div class="card detail6">
+        <div class="card-h"><h3 data-i18n="tokenBreakdown">Token 构成</h3></div>
+        <div class="d6-grid" id="stats-detail6"></div>
+      </div>
+      <div class="two-col">
+        <div class="card model-rank">
+          <div class="card-h"><h3 data-i18n="modelUsage">模型用量</h3><div class="seg" id="mr-dim"><button class="active" data-dim="input" data-i18n="input">输入</button><button data-dim="output" data-i18n="output">输出</button><button data-dim="cost" data-i18n="cost">成本</button></div></div>
+          <div class="mr-body">
+            <div class="chart-box" style="height:210px"><canvas id="mr-chart"></canvas></div>
+            <div class="mr-list" id="mr-list"></div>
+          </div>
+        </div>
+        <div class="card usage-trend">
+          <div class="card-h"><h3 data-i18n="usageTrend">用量趋势</h3><span class="hint" id="trend-hint">30 天</span></div>
+          <div class="chart-box" style="height:265px"><canvas id="trend-chart"></canvas></div>
+        </div>
+      </div>
+      <div class="card records">
+        <div class="card-h"><h3 data-i18n="usageRecords">使用记录</h3>
+          <div class="ph-right">
+            <select id="rec-model-filter" class="select"><option value=""><span data-i18n="allModels">全部模型</span></option></select>
+            <span class="hint" id="rec-count"></span>
+          </div>
+        </div>
+        <table class="tbl">
+          <thead><tr><th data-i18n="colTime">时间</th><th data-i18n="colModel">模型</th><th class="num" data-i18n="colInput">输入</th><th class="num" data-i18n="colOutput">输出</th><th class="num" data-i18n="colReasoning">推理</th><th class="num" data-i18n="colCacheRead">缓存读</th><th class="num" data-i18n="colCost">费用</th><th data-i18n="colPlan">PLAN</th></tr></thead>
+          <tbody id="records-body"></tbody>
+        </table>
+        <div class="pager"><button class="btn" id="pg-prev" data-i18n="prev">上一页</button><span class="pager-info" id="rec-pager"></span><button class="btn" id="pg-next" data-i18n="next">下一页</button></div>
+      </div>
+    </section>
+
+    <!-- ============ 设置 ============ -->
+    <section class="page" id="page-settings" hidden>
+      <div class="ph"><h2 class="ph-title" data-i18n="settingsTitle">设置</h2></div>
+
+      <div class="card set">
+        <div class="card-h"><h3 data-i18n="setAccount">OpenCode 账户</h3></div>
+        <div class="set-row"><div><div class="sl" data-i18n="setLoginState">登录状态</div><div class="sd" id="set-login-state">—</div></div><span class="badge" id="set-login-badge">—</span></div>
+        <div class="set-row"><div><div class="sl" data-i18n="setWorkspace">工作区</div><div class="sd" id="set-workspace">—</div></div><div></div></div>
+        <div class="set-row"><div><div class="sl" data-i18n="setLoginMethod">登录方式</div><div class="sd" data-i18n="loginMethodDesc">内置浏览器 (WebView2) 打开官方授权页，自动回填</div></div><button class="btn" id="btn-relogin" data-i18n="relogin">重新登录</button></div>
+        <div class="set-row"><div><div class="sl" data-i18n="setLogout">退出登录</div><div class="sd" data-i18n="logoutDesc">清除本地 token 与缓存数据</div></div><button class="btn danger" id="btn-logout" data-i18n="logout">退出登录</button></div>
+      </div>
+
+      <div class="card set">
+        <div class="card-h"><h3 data-i18n="setAutoSync">自动同步</h3></div>
+        <div class="set-row"><div><div class="sl" data-i18n="autoSync">自动增量同步</div><div class="sd" data-i18n="autoSyncDesc">按间隔拉取最新用量记录</div></div><label class="sw"><input type="checkbox" id="set-auto-sync" checked><span class="slider"></span></label></div>
+        <div class="set-row"><div><div class="sl" data-i18n="syncInterval">同步间隔</div><div class="sd" data-i18n="syncIntervalDesc">多久自动同步一次</div></div><div class="pill-row" id="set-interval-pills"><button class="pill" data-v="60" data-i18n="min1">1 分钟</button><button class="pill active" data-v="300" data-i18n="min5">5 分钟</button><button class="pill" data-v="900" data-i18n="min15">15 分钟</button><button class="pill" data-v="1800" data-i18n="min30">30 分钟</button></div></div>
+        <div class="set-row"><div><div class="sl" data-i18n="syncRange">同步范围</div><div class="sd" data-i18n="syncRangeDesc">本地保留与首次拉取的历史窗口；"所有"= 拉取全部（500 页保险）</div></div><div class="pill-row" id="set-window-pills"><button class="pill" data-v="30" data-i18n="d30short">30天</button><button class="pill active" data-v="60" data-i18n="d60">60天</button><button class="pill" data-v="90" data-i18n="d90">90天</button><button class="pill" data-v="180" data-i18n="d180">180天</button><button class="pill" data-v="all" data-i18n="all">所有</button></div></div>
+        <div class="set-row"><div><div class="sl" data-i18n="fullSync">立即全量同步</div><div class="sd" id="set-sync-progress-desc" data-i18n="fullSyncDesc">重新拉取历史记录，补全数据</div></div><div class="setting-value" id="set-sync-progress-val"></div><button class="btn" id="btn-full-sync" data-i18n="startFullSync">开始全量同步</button></div>
+      </div>
+
+      <div class="card set">
+        <div class="card-h"><h3 data-i18n="setAppearance">外观</h3></div>
+        <div class="set-row"><div><div class="sl" data-i18n="theme">主题</div><div class="sd" data-i18n="themeDesc">亮色 / 深色，顶栏按钮快捷切换</div></div><div class="pill-row" id="set-theme-pills"><button class="pill" data-v="light" data-i18n="light">浅色</button><button class="pill" data-v="dark" data-i18n="dark">深色</button></div></div>
+        <div class="set-row"><div><div class="sl" data-i18n="currency">默认货币</div><div class="sd" data-i18n="currencyDesc">费用主显示货币（实时汇率）</div></div><div class="pill-row" id="set-currency-pills"><button class="pill active" data-v="CNY">¥ CNY</button><button class="pill" data-v="USD">$ USD</button></div></div>
+        <div class="set-row"><div><div class="sl" data-i18n="language">语言 / Language</div><div class="sd" data-i18n="languageDesc">界面显示语言</div></div><div class="pill-row" id="set-lang-pills"><button class="pill active" data-v="zh">中文</button><button class="pill" data-v="en">English</button></div></div>
+      </div>
+
+      <div class="card set">
+        <div class="card-h"><h3 data-i18n="setData">数据</h3></div>
+        <div class="set-row"><div><div class="sl" data-i18n="dataDir">数据目录</div><div class="sd" id="set-datadir">—</div></div><div></div></div>
+        <div class="set-row"><div><div class="sl" data-i18n="syncInfo">同步记录</div><div class="sd" id="set-sync-info">—</div></div><div></div></div>
+      </div>
+    </section>
+
+    <!-- ============ 关于 ============ -->
+    <section class="page" id="page-about" hidden>
+      <div class="ph"><h2 class="ph-title"><span data-i18n="aboutTitle">关于</span> <span class="sub" id="about-sub">v1.0.0 · OpenCode Go Usage Panel</span></h2></div>
+      <div class="card set-card about">
+        <h3 data-i18n="aboutIntro">简介</h3>
+        <p><b>GoGauge</b> <span data-i18n="introText">是一款本地优先的 OpenCode Go 用量面板：配额窗口、Token 构成、模型排行与使用记录整理在同一处，打开即见。所有数据仅保存在本地，登录凭证只用于同步官方接口。</span></p>
+      </div>
+      <div class="card set-card">
+        <h3 data-i18n="aboutFeatures">功能</h3>
+        <ul class="feat">
+          <li data-i18n="feat1">配额窗口实时监控（滚动 5 小时 / 每周 / 每月）</li>
+          <li data-i18n="feat2">今日用量与 24 小时趋势</li>
+          <li data-i18n="feat3">各模型 Token 消耗排行与用量趋势</li>
+          <li data-i18n="feat4">详细使用记录分页浏览（10 条/页）</li>
+          <li data-i18n="feat5">自动同步数据，无需手动刷新</li>
+        </ul>
+      </div>
+      <div class="card set-card">
+        <h3 data-i18n="aboutLinks">链接</h3>
+        <p class="thanks">
+          GitHub: <a class="ext-link" href="https://github.com/yphyphyph/opencode-go-gauge" target="_blank">github.com/yphyphyph/opencode-go-gauge</a><br>
+          CSDN: <a class="ext-link" href="https://blog.csdn.net/Ying_ph" target="_blank">blog.csdn.net/Ying_ph</a>
+        </p>
+      </div>
+      <div class="card set-card">
+        <h3 data-i18n="aboutThanks">致谢</h3>
+        <p class="thanks"><span data-i18n="thanksText">数据提供</span> <b>OpenCode</b>。</p>
+      </div>
+      <div class="pagefoot" data-i18n="pageFoot">v1.0.0 · GoGauge · 数据仅保存在本地 · 数据提供 OpenCode</div>
+    </section>
+
+    <!-- 登录引导 (欢迎页) -->
+    <div class="login-overlay" id="login-overlay" hidden>
+      <div class="login-card">
+        <img src="logo-final.svg" class="login-logo" alt="GoGauge">
+        <h2>GoGauge</h2>
+        <p class="login-sub" data-i18n="welcomeDesc">本地优先的 OpenCode Go 用量仪表盘 — 配额窗口、Token 构成、模型排行、使用记录，打开即见。</p>
+        <ul class="login-feats">
+          <li data-i18n="welcomeFeat1">配额实时监控（5 小时 / 每周 / 每月）</li>
+          <li data-i18n="welcomeFeat2">Token 全维度统计与 24 小时趋势</li>
+          <li data-i18n="welcomeFeat3">数据仅保存在本机，安全私密</li>
+        </ul>
+        <button class="btn btn-primary btn-lg" id="btn-login" data-i18n="loginBtn">立即登录</button>
+        <p class="login-note" data-i18n="loginNote">点击后将打开 OpenCode Go 官方授权页完成登录。</p>
+        <button class="btn btn-ghost" id="btn-quit-app" data-i18n="quitApp">退出应用</button>
+      </div>
+    </div>
+
+    <!-- 自定义确认弹框 -->
+    <div class="modal-overlay" id="modal-overlay" hidden>
+      <div class="modal-card">
+        <div class="modal-icon" id="modal-icon"></div>
+        <h3 id="modal-title"></h3>
+        <p id="modal-message"></p>
+        <div class="modal-actions">
+          <button class="btn" id="modal-cancel"></button>
+          <button class="btn btn-primary" id="modal-ok"></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast-wrap" id="toast-wrap"></div>
+
+  </main>
+</div>
+
+<script src="chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
