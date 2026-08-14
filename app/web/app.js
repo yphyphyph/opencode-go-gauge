@@ -1,4 +1,4 @@
-/* GoGauge v1.0.0 - 4 页 (首页/用量统计/设置/关于) + 双主题 + 中英国际化 */
+/* GoGauge - 4 页 (首页/用量统计/设置/关于) + 双主题 + 中英国际化 */
 "use strict";
 
 const $ = (id) => document.getElementById(id);
@@ -14,7 +14,9 @@ const I18N = {
     modelUsage: "模型用量", input: "输入", output: "输出", cost: "成本",
     usageTrend: "用量趋势", usageRecords: "使用记录", allModels: "全部模型",
     recordsPage: "使用记录",
-    sessionUsage: "会话用量", colSession: "会话", colLastUsed: "最后使用", colRequests: "请求/Token",
+    sessionUsage: "会话用量", colSession: "会话", colLastUsed: "最后使用", colRequests: "请求/Token", unassigned: "未归属",
+    setUpdate: "软件更新", currentVersion: "当前版本", checkUpdate: "检查更新", checkUpdateDesc: "检查 GitHub 上是否有新版本", checkUpdateBtn: "检查更新",
+    checkingUpdate: "检查中…", updateFound: "发现新版本", updateNone: "已是最新版本", updateFailed: "检查更新失败", goDownload: "前往下载",
     colTime: "时间", colModel: "模型", colInput: "输入", colOutput: "输出",
     colReasoning: "推理", colCacheRead: "缓存读", colCost: "费用", colPlan: "PLAN",
     prev: "上一页", next: "下一页",
@@ -38,7 +40,7 @@ const I18N = {
     feat2: "今日用量与 24 小时趋势", feat3: "各模型 Token 消耗排行与用量趋势",
     feat4: "详细使用记录分页浏览（10 条/页）", feat5: "自动同步数据，无需手动刷新",
     aboutTech: "技术栈", aboutLinks: "链接", aboutThanks: "致谢", thanksText: "数据提供",
-    pageFoot: "v1.0.0 · GoGauge · 数据仅保存在本地 · 数据提供 OpenCode",
+    pageFoot: "{version} · GoGauge · 数据仅保存在本地 · 数据提供 OpenCode",
     loginTitle: "连接 OpenCode Go",
     welcomeDesc: "本地优先的 OpenCode Go 用量仪表盘 — 配额窗口、Token 构成、模型排行、使用记录，打开即见。",
     welcomeFeat1: "配额实时监控（5 小时 / 每周 / 每月）",
@@ -77,7 +79,9 @@ const I18N = {
     modelUsage: "Model Usage", input: "Input", output: "Output", cost: "Cost",
     usageTrend: "Usage Trend", usageRecords: "Usage Records", allModels: "All Models",
     recordsPage: "Records",
-    sessionUsage: "Session Usage", colSession: "Session", colLastUsed: "Last Used", colRequests: "Requests/Token",
+    sessionUsage: "Session Usage", colSession: "Session", colLastUsed: "Last Used", colRequests: "Requests/Token", unassigned: "Unassigned",
+    setUpdate: "Software Update", currentVersion: "Current Version", checkUpdate: "Check Updates", checkUpdateDesc: "Check GitHub for new versions", checkUpdateBtn: "Check Updates",
+    checkingUpdate: "Checking…", updateFound: "New Version Available", updateNone: "You're up to date", updateFailed: "Check failed", goDownload: "Go to Download",
     colTime: "Time", colModel: "Model", colInput: "Input", colOutput: "Output",
     colReasoning: "Reasoning", colCacheRead: "Cache Read", colCost: "Cost", colPlan: "PLAN",
     prev: "Prev", next: "Next",
@@ -101,7 +105,7 @@ const I18N = {
     feat2: "Today's usage with 24-hour trend", feat3: "Per-model token ranking and usage trend",
     feat4: "Paginated usage records (10 per page)", feat5: "Auto sync — no manual refresh needed",
     aboutTech: "Tech Stack", aboutLinks: "Links", aboutThanks: "Thanks", thanksText: "Data provided by",
-    pageFoot: "v1.0.0 · GoGauge · Local-only data · Data by OpenCode",
+    pageFoot: "{version} · GoGauge · Local-only data · Data by OpenCode",
     loginTitle: "Connect OpenCode Go",
     welcomeDesc: "A local-first OpenCode Go usage dashboard — quota windows, token breakdown, model ranking and usage records in one place.",
     welcomeFeat1: "Real-time quota monitoring (5h / weekly / monthly)",
@@ -220,7 +224,13 @@ function applyLang(l) {
     el.textContent = t(el.dataset.i18n);
   });
   document.querySelectorAll("#set-lang-pills .pill").forEach((b) => b.classList.toggle("active", b.dataset.v === lang));
-  document.getElementById("about-sub").textContent = "v1.0.0 · OpenCode Go Usage Panel";
+  // 版本号: 唯一来源为后端 /api/version (app/__init__.py), 前端动态获取
+  const ver = APP_VERSION ? "v" + APP_VERSION : "GoGauge";
+  document.getElementById("about-sub").textContent = `${ver} · OpenCode Go Usage Panel`;
+  const pf = document.querySelector('[data-i18n="pageFoot"]');
+  if (pf) pf.textContent = t("pageFoot").replace("{version}", ver);
+  const sv = document.getElementById("set-version");
+  if (sv) sv.textContent = APP_VERSION ? `v${APP_VERSION}` : "—";
   // 动态内容重渲染
   if (state.data) {
     renderAll(state.data);
@@ -529,7 +539,9 @@ async function loadSessions() {
       body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px">${t("noData")}</td></tr>`;
     } else {
       let html = data.records.map((s) => `
-        <tr><td title="${escapeHtml(s.session_id)}">${escapeHtml(s.session_id)}</td>
+        <tr>${s.session_id
+          ? `<td title="${escapeHtml(s.session_id)}">${escapeHtml(s.session_id)}</td>`
+          : `<td class="unassigned">${t("unassigned")}</td>`}
         <td>${fmtDateTime(s.last_at)}</td>
         <td class="num">${fmtTokens(s.total_input_tokens)}</td>
         <td class="num">${fmtTokens(s.total_output_tokens)}</td>
@@ -780,6 +792,37 @@ function bindEvents() {
   $("ses-next").addEventListener("click", () => { state.sessions.page++; loadSessions(); });
   $("rec-model-filter").addEventListener("change", (e) => { state.records.model = e.target.value; state.records.page = 1; loadRecords(); });
 
+  // 检查更新: 有新版 -> 弹窗 -> 打开浏览器前往 GitHub Releases 下载
+  $("btn-check-update").addEventListener("click", async () => {
+    const btn = $("btn-check-update");
+    const desc = $("set-update-desc");
+    const prevText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = t("checkingUpdate");
+    try {
+      const r = await api("/api/update/check");
+      if (r.error) throw new Error(r.error);
+      if (r.has_update) {
+        desc.textContent = `${t("updateFound")} ${r.latest}`;
+        showModal({
+          title: t("updateFound"),
+          message: `<b>${r.latest}</b> (${t("currentVersion")} v${r.current})<br><br>${escapeHtml((r.notes || "").slice(0, 300)) || ""}`,
+          okText: t("goDownload"),
+          onOk: () => { api("/api/update/open", { method: "POST" }).catch(() => {}); },
+        });
+      } else {
+        desc.textContent = `${t("updateNone")} (v${r.current})`;
+        toast(t("updateNone"));
+      }
+    } catch (e) {
+      desc.textContent = `${t("updateFailed")}: ${t("checkUpdateDesc")}`;
+      showModal({ title: t("updateFailed"), message: escapeHtml(e.message || ""), okText: t("ok") });
+    } finally {
+      btn.disabled = false;
+      btn.textContent = prevText;
+    }
+  });
+
   document.querySelectorAll("#set-interval-pills .pill").forEach((b) => b.addEventListener("click", async () => {
     await api("/api/settings", { method: "PUT", body: JSON.stringify({ sync_interval_sec: Number(b.dataset.v) }) });
     state.settings = await api("/api/settings");
@@ -874,6 +917,7 @@ window.addEventListener("resize", () => {
 });
 
 /* ---------------- 启动 ---------------- */
+let APP_VERSION = "";  // 后端版本号 (app/__init__.py), 唯一版本源
 (async function init() {
   let dark = false, cur = "CNY", l = "zh";
   try {
@@ -881,6 +925,7 @@ window.addEventListener("resize", () => {
     cur = localStorage.getItem("gousage-currency") || "CNY";
     l = localStorage.getItem("gousage-lang") || "zh";
   } catch (e) { /* ignore */ }
+  try { const v = await api("/api/version"); APP_VERSION = v.version || ""; } catch (e) { /* ignore */ }
   applyLang(l);
   applyDarkMode(dark);
   applyCurrency(cur);

@@ -252,6 +252,7 @@ html[data-theme="dark"] .skeleton::after { background: linear-gradient(90deg, tr
 .tbl td { padding: 5px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .tbl tbody tr:hover { background: var(--muted); }
 .tbl td.num, .tbl th.num { text-align: right; }
+.tbl td.unassigned { color: var(--text3); font-style: italic; }
 .model-cell { display: flex; align-items: center; gap: 7px; font-weight: 500; }
 .plan-badge { font-size: 10.5px; padding: 2px 8px; border-radius: 99px; font-weight: 700; background: var(--primary-soft); color: var(--primary); letter-spacing: 0.5px; }
 .plan-badge.lite { background: #e6f7f5; color: #0d9488; }

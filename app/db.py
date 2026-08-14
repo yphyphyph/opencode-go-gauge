@@ -401,21 +401,28 @@ def session_stats_page(
     page_size: int = 10,
     days: Optional[int] = None,
 ) -> tuple[list[dict[str, Any]], int]:
-    """按会话聚合用量 (session_id 非空), 按成本降序, 返回 (records, total)."""
+    """按会话聚合用量, 按成本降序, 返回 (records, total).
+
+    空 session_id (其他 agent 工具调用, 无会话归属) 聚合为一行
+    session_id="" 的"未归属"记录, 保证会话用量与明细/统计合计一致.
+    """
     page = max(1, page)
     page_size = max(1, min(page_size, 50))
-    where: list[str] = ["session_id IS NOT NULL AND session_id != ''"]
+    where: list[str] = []
     params: list[Any] = []
     if days:
         where.append("datetime(created_at) >= datetime('now', ?)")
         params.append(f"-{days} days")
-    where_sql = "WHERE " + " AND ".join(where)
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    session_key = "CASE WHEN session_id IS NULL OR session_id = '' THEN '' ELSE session_id END"
     conn = get_db()
     total = int(
-        conn.execute(f"SELECT COUNT(DISTINCT session_id) AS c FROM usage_records {where_sql}", params).fetchone()["c"]
+        conn.execute(
+            f"SELECT COUNT(DISTINCT {session_key}) AS c FROM usage_records {where_sql}", params
+        ).fetchone()["c"]
     )
     rows = conn.execute(
-        f"""SELECT session_id,
+        f"""SELECT {session_key} AS session_id,
                COUNT(*) AS request_count,
                SUM(input_tokens + cache_read_tokens + cache_write_5m_tokens + cache_write_1h_tokens) AS total_input_tokens,
                SUM(input_tokens) AS uncached_input_tokens,
@@ -424,7 +431,7 @@ def session_stats_page(
                SUM(cost_usd) AS total_cost_usd,
                MAX(created_at) AS last_at
         FROM usage_records {where_sql}
-        GROUP BY session_id
+        GROUP BY {session_key}
         ORDER BY last_at DESC
         LIMIT ? OFFSET ?""",
         params + [page_size, (page - 1) * page_size],

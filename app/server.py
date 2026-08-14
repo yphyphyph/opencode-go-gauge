@@ -12,7 +12,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Optional
 from urllib.parse import parse_qs, urlparse
 
-from . import db
+from . import __version__, db
+from .updater import RELEASE_PAGE_URL, check_update
 from .opencode_api import (
     AuthError,
     OpenCodeAPIError,
@@ -334,6 +335,22 @@ def _static_response(handler: BaseHTTPRequestHandler, rel: str) -> None:
 def _handle_api(handler: BaseHTTPRequestHandler, path: str, query: dict[str, list[str]]) -> None:
     method = handler.command
     route = path
+
+    if route == "/api/version" and method == "GET":
+        _json_response(handler, {"version": __version__})
+
+    if route == "/api/update/check" and method == "GET":
+        try:
+            _json_response(handler, check_update())
+        except Exception as exc:  # noqa: BLE001 网络/解析失败 -> 前端提示
+            _json_response(handler, {"error": str(exc)}, status=502)
+
+    if route == "/api/update/open" and method == "POST":
+        # 用系统默认浏览器打开 GitHub Releases 页 (WebView 内 window.open 不可靠)
+        import webbrowser
+
+        webbrowser.open(RELEASE_PAGE_URL)
+        _json_response(handler, {"ok": True})
 
     if route == "/api/state" and method == "GET":
         account = db.get_account()
