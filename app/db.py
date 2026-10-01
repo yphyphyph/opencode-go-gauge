@@ -126,7 +126,8 @@ def _init_schema(conn: sqlite3.Connection) -> None:
           session_id TEXT,
           plan TEXT,
           synced_at TEXT NOT NULL,
-          account_id INTEGER NOT NULL DEFAULT 1
+          account_id INTEGER NOT NULL DEFAULT 1,
+          local_date TEXT  -- 本地日 "YYYY-MM-DD"; 见 _init_schema 迁移说明
         );
 
         CREATE INDEX IF NOT EXISTS idx_usage_time ON usage_records(created_at DESC);
@@ -223,6 +224,25 @@ def _init_schema(conn: sqlite3.Connection) -> None:
     # 置空凭证让应用回到欢迎页引导重新登录 (新格式 __Host-console_session=… 不受影响);
     # 仅清凭证不删历史记录, 幂等
     conn.execute("UPDATE accounts SET token = '' WHERE token LIKE 'auth=%'")
+
+    # 迁移 5: 新增 local_date 列 (本地日 "YYYY-MM-DD") + (account_id, local_date) 索引.
+    #
+    # 时间过滤原先写作 datetime(created_at) / substr(datetime(created_at,'localtime'),1,10),
+    # 函数包裹索引列使 SQLite 无法范围扫描, 每个周期查询都退化为按账号全表扫描
+    # (dashboard 一次刷新要跑多条聚合). 但 localtime 是非确定性函数, SQLite 会直接
+    # 拒绝为它建表达式索引, 故改为写入时落一列 local_date, 再建确定性索引.
+    rec_cols = {row["name"] for row in conn.execute("PRAGMA table_info(usage_records)").fetchall()}
+    if "local_date" not in rec_cols:
+        conn.execute("ALTER TABLE usage_records ADD COLUMN local_date TEXT")
+    # 存量回填 (仅未回填行; 幂等)
+    conn.execute(
+        "UPDATE usage_records SET local_date = date(created_at, 'localtime')"
+        " WHERE local_date IS NULL"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_usage_account_localdate"
+        " ON usage_records(account_id, local_date)"
+    )
     conn.commit()
 
 
@@ -528,8 +548,9 @@ def insert_usage_records(records: list[dict[str, Any]], account_id: Optional[int
     stmt = (
         "INSERT INTO usage_records (usg_id, created_at, model, provider, input_tokens,"
         " output_tokens, reasoning_tokens, cache_read_tokens, cache_write_5m_tokens,"
-        " cache_write_1h_tokens, cost_raw, cost_usd, key_id, session_id, plan, synced_at, account_id)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        " cache_write_1h_tokens, cost_raw, cost_usd, key_id, session_id, plan, synced_at,"
+        " account_id, local_date)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, date(?, 'localtime'))"
         " ON CONFLICT(usg_id) DO UPDATE SET"
         " input_tokens = excluded.input_tokens,"
         " output_tokens = excluded.output_tokens,"
@@ -557,6 +578,8 @@ def insert_usage_records(records: list[dict[str, Any]], account_id: Optional[int
                     rec["cache_write_1h_tokens"], rec["cost_raw"], rec["cost_usd"],
                     rec.get("key_id"), rec.get("session_id"), rec.get("plan"),
                     synced_at, aid,
+                    # local_date 由 SQLite 按本地时区从 created_at 派生 (末位绑定)
+                    rec["created_at"],
                 ),
             )
             if not existed:
@@ -644,9 +667,12 @@ def prune_old_records(window_days: int | None, account_id: Optional[int] = None)
     if not aid:
         return 0
     window_days = max(1, min(int(window_days), 3650))
+    # local_date 走 idx_usage_account_localdate; 原先 datetime(created_at) <
+    # datetime('now', ?) 每次同步都要按账号全表扫一遍. 日历日口径最多多保留
+    # 窗口边界当天一天的记录, 只多不少, 不会丢数据.
     cur = get_db().execute(
         "DELETE FROM usage_records WHERE account_id = ?"
-        " AND datetime(created_at) < datetime('now', ?)",
+        " AND local_date < date('now', 'localtime', ?)",
         (aid, f"-{window_days} days"),
     )
     get_db().commit()
@@ -676,7 +702,8 @@ def usage_records_page(
         where.append("model = ?")
         params.append(model)
     if days:
-        where.append("datetime(created_at) >= datetime('now', ?)")
+        # 日历日口径 + local_date 索引 (原先 datetime(created_at) 全表扫)
+        where.append("local_date >= date('now', 'localtime', ?)")
         params.append(f"-{days} days")
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
     where_sql, params = _account_filter(where_sql, params, _resolve_account_id(account_id))
@@ -735,7 +762,8 @@ def session_stats_page(
     where: list[str] = []
     params: list[Any] = []
     if days:
-        where.append("datetime(created_at) >= datetime('now', ?)")
+        # 日历日口径 + local_date 索引 (原先 datetime(created_at) 全表扫)
+        where.append("local_date >= date('now', 'localtime', ?)")
         params.append(f"-{days} days")
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
     where_sql, params = _account_filter(where_sql, params, _resolve_account_id(account_id))
@@ -836,8 +864,17 @@ def save_settings(payload: dict[str, Any]) -> dict[str, Any]:
     return current
 
 _PERIOD_CLAUSES = {
-    "5h": "datetime(created_at) >= datetime('now', '-5 hours')",
-    "today": "substr(datetime(created_at, 'localtime'), 1, 10) = date('now', 'localtime')",
+    # local_date 为写入时落库的本地日 (见 _init_schema 迁移 5), 可直接走
+    # idx_usage_account_localdate; 原先的 substr(datetime(...,'localtime')) 无法用索引.
+    #
+    # "5h" 滚动窗口: datetime() 包裹索引列无法走索引, 先用 local_date 把行集
+    # 收敛到昨/今两天 (索引范围扫, 行数少), 再叠加 datetime() 保留精确的
+    # 滚动 5 小时口径 —— 外层索引过滤 + 内层精确过滤, 两全.
+    "5h": (
+        "(local_date >= date('now', 'localtime', '-1 day')"
+        " AND datetime(created_at) >= datetime('now', '-5 hours'))"
+    ),
+    "today": "local_date = date('now', 'localtime')",
 }
 
 
@@ -847,11 +884,14 @@ def _period_where(period: str) -> tuple[str, list[Any]]:
     if period in _PERIOD_CLAUSES:
         clauses.append(_PERIOD_CLAUSES[period])
     elif period != "all":
+        # "7d"/"30d" 等: 日历日口径 (与 daily_stats/today_trend 一致), 走索引;
+        # 原先 datetime(created_at) >= datetime('now','-N days') 无法用索引,
+        # dashboard 一次刷新多条聚合全是按账号全范围扫描.
         days = 30
         match = _NUM_DAYS_RE.match(period or "")
         if match:
             days = max(1, int(match.group(1)))
-        clauses.append("datetime(created_at) >= datetime('now', ?)")
+        clauses.append("local_date >= date('now', 'localtime', ?)")
         params.append(f"-{days} days")
     return ("WHERE " + " AND ".join(clauses)) if clauses else "", params
 
@@ -912,7 +952,7 @@ def daily_stats(days: int = 30, account_id: Optional[int] = None) -> list[dict[s
     aid = _resolve_account_id(account_id)
     rows = get_db().execute(
         """
-        SELECT substr(datetime(created_at, 'localtime'), 1, 10) AS date,
+        SELECT local_date AS date,
                SUM(input_tokens + cache_read_tokens + cache_write_5m_tokens + cache_write_1h_tokens) AS total_input_tokens,
                SUM(input_tokens) AS uncached_input_tokens,
                SUM(reasoning_tokens) AS total_reasoning_tokens,
@@ -923,8 +963,8 @@ def daily_stats(days: int = 30, account_id: Optional[int] = None) -> list[dict[s
                COUNT(*) AS request_count
         FROM usage_records
         WHERE account_id = ?
-          AND substr(datetime(created_at, 'localtime'), 1, 10) >= date('now', 'localtime', ?)
-        GROUP BY substr(datetime(created_at, 'localtime'), 1, 10)
+          AND local_date >= date('now', 'localtime', ?)
+        GROUP BY local_date
         ORDER BY date ASC
         """,
         (aid, f"-{days} days"),
@@ -962,7 +1002,7 @@ def today_trend(account_id: Optional[int] = None) -> list[dict[str, Any]]:
                SUM(reasoning_tokens) AS reasoning
         FROM usage_records
         WHERE account_id = ?
-          AND substr(datetime(created_at, 'localtime'), 1, 10) = date('now', 'localtime')
+          AND local_date = date('now', 'localtime')
         GROUP BY h
         """,
         (aid,),

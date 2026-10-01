@@ -278,3 +278,51 @@ def test_settings_roundtrip_preserves_extras(tmp_db):
     assert db.get_key_names() == {"k1": "名字"}
     assert db.get_settings()["sync_interval_sec"] == 60
     assert db.get_active_account_id() == aid
+
+
+# ---------------------------------------------------------------------------
+# 迁移 5: local_date 列 (时间过滤走确定性索引)
+# ---------------------------------------------------------------------------
+
+
+def _local_date_of(conn, created_at: str) -> str:
+    """用 SQLite 自己算日期, 断言不依赖测试机时区."""
+    return conn.execute("SELECT date(?, 'localtime') AS d", (created_at,)).fetchone()["d"]
+
+
+def test_local_date_index_and_write(tmp_db):
+    """新写入的行带 local_date, 且 (account_id, local_date) 索引已建立."""
+    db.insert_usage_records([_rec("u1", created="2026-01-01T12:00:00Z")])
+    conn = db.get_db()
+    row = conn.execute("SELECT local_date FROM usage_records WHERE usg_id = 'u1'").fetchone()
+    assert row["local_date"] == _local_date_of(conn, "2026-01-01T12:00:00Z")
+    idx = {r["name"] for r in conn.execute("PRAGMA index_list(usage_records)").fetchall()}
+    assert "idx_usage_account_localdate" in idx
+
+
+def test_local_date_backfilled_on_legacy_migration(tmp_db):
+    """老库 (无 local_date 列) 打开后补齐列, 存量行按本地日回填."""
+    _make_legacy_db(tmp_db / "gousage.db")
+    conn = db.get_db()  # 首次连接触发迁移
+    rows = {
+        r["usg_id"]: r["local_date"]
+        for r in conn.execute("SELECT usg_id, local_date FROM usage_records").fetchall()
+    }
+    assert rows["usg_a"] == _local_date_of(conn, "2024-01-02T10:00:00Z")
+    assert rows["usg_b"] == _local_date_of(conn, "2024-01-03T10:00:00Z")
+
+
+def test_period_filter_uses_local_date(tmp_db):
+    """迁移后周期过滤口径不变: today/7d 只统计窗口内记录, all 全量."""
+    now_utc = db.get_db().execute(
+        "SELECT strftime('%Y-%m-%dT%H:%M:%SZ', 'now') AS t"
+    ).fetchone()["t"]
+    db.insert_usage_records(
+        [
+            _rec("u-now", created=now_utc),
+            _rec("u-old", created="2020-01-01T00:00:00Z"),
+        ]
+    )
+    assert db.totals(period="today")["request_count"] == 1
+    assert db.totals(period="7d")["request_count"] == 1
+    assert db.totals(period="all")["request_count"] == 2
