@@ -809,7 +809,8 @@ def save_settings(payload: dict[str, Any]) -> dict[str, Any]:
     current = dict(_DEFAULT_SETTINGS)
     current.update({k: v for k, v in raw.items() if k in _DEFAULT_SETTINGS})
     for key in _DEFAULT_SETTINGS:
-        if key in payload and payload[key] is not None:
+        # window_days 的 None 是合法值 ("所有"), 不能被 "None=未提供" 守卫拦下
+        if key in payload and (payload[key] is not None or key == "window_days"):
             if key == "sync_interval_sec":
                 try:
                     current[key] = max(30, min(int(payload[key]), 3600))

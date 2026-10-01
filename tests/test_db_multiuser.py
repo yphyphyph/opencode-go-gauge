@@ -278,3 +278,16 @@ def test_settings_roundtrip_preserves_extras(tmp_db):
     assert db.get_key_names() == {"k1": "名字"}
     assert db.get_settings()["sync_interval_sec"] == 60
     assert db.get_active_account_id() == aid
+
+
+def test_settings_window_days_all(tmp_db):
+    """回归: 同步范围选 "所有" 时前端发 window_days=null, 必须存得进去.
+
+    外层守卫把 None 当作 "未提供" 拦下过, 内层 "None -> 所有" 分支成了
+    死代码, 范围永远停在旧值 (界面上按钮切不动).
+    """
+    assert db.save_settings({"window_days": 90})["window_days"] == 90
+    assert db.save_settings({"window_days": None})["window_days"] is None
+    assert db.get_settings()["window_days"] is None
+    # 数字窗口与越界钳制不受影响
+    assert db.save_settings({"window_days": 99999})["window_days"] == 3650
