@@ -13,7 +13,7 @@ import json
 import os
 import sqlite3
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 _DB: Optional[sqlite3.Connection] = None
@@ -907,7 +907,12 @@ def model_stats(period: str = "30d", account_id: Optional[int] = None) -> list[d
 
 
 def daily_stats(days: int = 30, account_id: Optional[int] = None) -> list[dict[str, Any]]:
-    """每日聚合: 输入(含缓存) / 普通输入 / 推理 / 缓存命中 / 缓存写入 / 输出 / 成本 / 请求数."""
+    """每日聚合: 输入(含缓存) / 普通输入 / 推理 / 缓存命中 / 缓存写入 / 输出 / 成本 / 请求数.
+
+    返回从 (今天 - days 天) 到今天(含)的**连续日期**序列; 无记录的天补 0,
+    保证折线图 / 每日趋势每天都有数据点, 不会出现缺天跳线 (与 today_trend
+    逐小时补 0 的口径一致).
+    """
     days = max(1, min(days, 365))
     aid = _resolve_account_id(account_id)
     rows = get_db().execute(
@@ -929,25 +934,53 @@ def daily_stats(days: int = 30, account_id: Optional[int] = None) -> list[dict[s
         """,
         (aid, f"-{days} days"),
     ).fetchall()
+    # 连续日期窗口 [今天-days, 今天], 与上面 SQL 过滤条件同源 (同一 SQLite 时区口径)
+    bounds = get_db().execute(
+        "SELECT date('now', 'localtime', ?) AS start_date, date('now', 'localtime') AS end_date",
+        (f"-{days} days",),
+    ).fetchone()
+    by_date = {r["date"]: r for r in rows}
     result: list[dict[str, Any]] = []
-    for r in rows:
-        hit = int(r["cache_hit_tokens"] or 0)
-        miss = int(r["uncached_input_tokens"] or 0)
-        hit_rate = (hit / (hit + miss) * 100) if (hit + miss) > 0 else 0.0
-        result.append(
-            {
-                "date": r["date"],
-                "total_input_tokens": int(r["total_input_tokens"] or 0),
-                "uncached_input_tokens": miss,
-                "total_reasoning_tokens": int(r["total_reasoning_tokens"] or 0),
-                "cache_hit_tokens": hit,
-                "cache_write_tokens": int(r["cache_write_tokens"] or 0),
-                "total_output_tokens": int(r["total_output_tokens"] or 0),
-                "total_cost_usd": round(float(r["total_cost_usd"] or 0), 6),
-                "request_count": int(r["request_count"]),
-                "hit_rate": round(hit_rate, 2),
-            }
-        )
+    cur = datetime.strptime(bounds["start_date"], "%Y-%m-%d").date()
+    end = datetime.strptime(bounds["end_date"], "%Y-%m-%d").date()
+    while cur <= end:
+        date_key = cur.isoformat()
+        r = by_date.get(date_key)
+        if r is None:
+            # 无记录的天: 全部补 0
+            result.append(
+                {
+                    "date": date_key,
+                    "total_input_tokens": 0,
+                    "uncached_input_tokens": 0,
+                    "total_reasoning_tokens": 0,
+                    "cache_hit_tokens": 0,
+                    "cache_write_tokens": 0,
+                    "total_output_tokens": 0,
+                    "total_cost_usd": 0.0,
+                    "request_count": 0,
+                    "hit_rate": 0.0,
+                }
+            )
+        else:
+            hit = int(r["cache_hit_tokens"] or 0)
+            miss = int(r["uncached_input_tokens"] or 0)
+            hit_rate = (hit / (hit + miss) * 100) if (hit + miss) > 0 else 0.0
+            result.append(
+                {
+                    "date": date_key,
+                    "total_input_tokens": int(r["total_input_tokens"] or 0),
+                    "uncached_input_tokens": miss,
+                    "total_reasoning_tokens": int(r["total_reasoning_tokens"] or 0),
+                    "cache_hit_tokens": hit,
+                    "cache_write_tokens": int(r["cache_write_tokens"] or 0),
+                    "total_output_tokens": int(r["total_output_tokens"] or 0),
+                    "total_cost_usd": round(float(r["total_cost_usd"] or 0), 6),
+                    "request_count": int(r["request_count"] or 0),
+                    "hit_rate": round(hit_rate, 2),
+                }
+            )
+        cur += timedelta(days=1)
     return result
 
 
